@@ -45,13 +45,10 @@ jobs:
 
       - name: Commit transcript file
         run: |
-          timestamp=$(date +"%Y%m%d_%H%M%S")
-          mkdir -p transcripts
-          mv transcript.txt transcripts/${timestamp}.txt
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add transcripts/${timestamp}.txt
-          git commit -m "Add transcript ${timestamp}"
+          git add news/*
+          git commit -m "Add news"
           git push
 
       - name: Generate summary with LLM

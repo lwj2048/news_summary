@@ -1,0 +1,4 @@
+requests
+tqdm 
+opencc-python-reimplemented 
+ffmpeg-python
