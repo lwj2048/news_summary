@@ -1,4 +1,4 @@
-name: Video to Text and Summary
+name: News Summary
 
 on:
   workflow_dispatch: # 手动触发
@@ -28,10 +28,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Download video and convert to text
+      - name: Download video
         run: |
-          python scripts/douyin_download.py --url "${{ github.event.inputs.url }}" --output video.mp4
-          python scripts/transcribe.py --input video.mp4 --output transcript.txt
+          python scripts/douyin_download.py --url "${{ github.event.inputs.url }}" -n video
+
+      - name: video to mp3
+        run: |
+          sudo apt update
+          sudo apt install ffmpeg -y
+          ffmpeg -i video.mp4 -vn -acodec libmp3lame -ar 16000 -ac 1 audio.mp3
+
+      - name: mp3 to txt
+        run: |
+          pip install git+https://github.com/openai/whisper.git
+          python scripts/mp3_2_txt.py
 
       - name: Commit transcript file
         run: |
