@@ -1,0 +1,59 @@
+name: Video to Text and Summary
+
+on:
+  workflow_dispatch: # 手动触发
+    inputs:
+        url:
+          description: '抖音链接'
+          required: true
+          type: string
+
+jobs:
+  process_video:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true  # 让后面可以直接 push
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download video and convert to text
+        run: |
+          python scripts/douyin_download.py --url "${{ github.event.inputs.url }}" --output video.mp4
+          python scripts/transcribe.py --input video.mp4 --output transcript.txt
+
+      - name: Commit transcript file
+        run: |
+          timestamp=$(date +"%Y%m%d_%H%M%S")
+          mkdir -p transcripts
+          mv transcript.txt transcripts/${timestamp}.txt
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add transcripts/${timestamp}.txt
+          git commit -m "Add transcript ${timestamp}"
+          git push
+
+      - name: Generate summary with LLM
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          timestamp=$(date +"%Y%m%d_%H%M%S")
+          latest_file=$(ls -t transcripts | head -n 1)
+          python scripts/summarize.py --input transcripts/$latest_file --output summaries/${timestamp}_summary.txt
+
+      - name: Commit summary file
+        run: |
+          git add summaries/
+          git commit -m "Add summary for transcript"
+          git push
