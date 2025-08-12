@@ -360,7 +360,7 @@ class SimpleDouyinDownloader:
 
 def main():
     parser = argparse.ArgumentParser(description='简化版抖音视频下载器')
-    parser.add_argument('url', nargs='?', help='抖音视频链接')
+    parser.add_argument('--url', '-u', help='抖音视频链接')
     parser.add_argument('-o', '--output', default='downloads', help='输出目录 (默认: downloads)')
     parser.add_argument('-n', '--name', help='指定下载文件名 (不包含扩展名)')
     
@@ -371,14 +371,15 @@ def main():
     if not url:
         print("请提供抖音视频链接")
         print("使用方法:")
-        print("1. 命令行参数: python douyin_simple.py 'https://v.douyin.com/xxx/'")
-        print("2. 环境变量: set DOUYIN_URL='https://v.douyin.com/xxx/' && python douyin_simple.py")
-        print("3. 交互式输入: python douyin_simple.py")
+        print("1. 命令行参数: python douyin_download.py --url 'https://v.douyin.com/xxx/'")
+        print("2. 环境变量: set DOUYIN_URL='https://v.douyin.com/xxx/' && python douyin_download.py")
+        print("3. 交互式输入: python douyin_download.py")
         print("\n可选参数:")
+        print("  -u, --url URL       抖音视频链接")
         print("  -o, --output DIR    指定输出目录 (默认: downloads)")
         print("  -n, --name NAME     指定下载文件名 (不包含扩展名)")
         print("\n示例:")
-        print("  python douyin_simple.py '链接' -o my_videos -n 我的视频")
+        print("  python douyin_download.py --url '链接' -o my_videos -n 我的视频")
         
         try:
             url = input("请输入抖音视频链接: ").strip()

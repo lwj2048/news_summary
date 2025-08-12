@@ -125,6 +125,16 @@ def main():
     print("🎯 新闻处理流水线启动")
     print("📋 流程：下载抖音视频 -> MP4转MP3 -> 转文字 -> AI总结 -> Git提交")
     
+    # 检查命令行参数
+    if len(sys.argv) < 2:
+        print("❌ 请提供抖音视频链接")
+        print("使用方法: python run_pipeline.py <抖音视频链接>")
+        print("示例: python run_pipeline.py 'https://v.douyin.com/xxx/'")
+        return
+    
+    douyin_url = sys.argv[1]
+    print(f"🎬 目标视频: {douyin_url}")
+    
     # 生成统一的时间戳
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")
     print(f"📅 本次流水线时间戳: {timestamp}")
@@ -135,7 +145,8 @@ def main():
         return
     
     # 步骤1: 下载抖音视频
-    if not run_script("douyin_download.py", "步骤1: 下载抖音视频"):
+    download_args = ["--url", douyin_url]
+    if not run_script("douyin_download.py", "步骤1: 下载抖音视频", download_args):
         print("❌ 第一步失败，停止执行")
         return
     

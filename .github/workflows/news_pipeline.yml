@@ -67,27 +67,33 @@ jobs:
         if: github.event.inputs.douyin_url != ''
         run: |
           echo "开始下载抖音视频: ${{ github.event.inputs.douyin_url }}"
-          python scripts/douyin_download.py "${{ github.event.inputs.douyin_url }}"
+          python scripts/douyin_download.py --url "${{ github.event.inputs.douyin_url }}"
 
       - name: 步骤2:MP4转MP3
         if: github.event.inputs.douyin_url != ''
         run: |
           echo "开始转换MP4为MP3..."
           cd downloads
-          if [ -f "*.mp4" ]; then
+          # 检查是否有MP4文件
+          if ls *.mp4 1> /dev/null 2>&1; then
             video=$(ls *.mp4 | head -1)
-            echo "转换: $video"
+            echo "找到MP4文件: $video"
             mp3_name="${video%.mp4}.mp3"
+            echo "开始转换: $video -> $mp3_name"
             ffmpeg -i "$video" -vn -acodec libmp3lame -ar 16000 -ac 1 -q:a 2 -y "$mp3_name"
             if [ $? -eq 0 ]; then
               echo "✅ 转换成功: $mp3_name"
               rm "$video"
-              echo "🧹 已删除: $video"
+              echo "🧹 已删除原MP4文件: $video"
             else
               echo "❌ 转换失败: $video"
             fi
           else
             echo "❌ 未找到MP4文件"
+            echo "当前目录内容:"
+            ls -la
+            echo "检查downloads目录内容:"
+            ls -la ..
           fi
           cd ..
 
