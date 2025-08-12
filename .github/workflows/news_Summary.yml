@@ -27,49 +27,49 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: 🚀 检出代码仓库
+      - name: checkout
         uses: actions/checkout@v4
         with:
           persist-credentials: true
 
-      - name: 🐍 设置Python环境
+      - name: python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: 📦 安装系统依赖
+      - name: install
         run: |
           sudo apt update
           sudo apt install -y ffmpeg git
 
-      - name: 🔧 安装Python依赖
+      - name: requirements
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install git+https://github.com/openai/whisper.git
 
-      - name: 📁 创建必要目录
+      - name: dir
         run: |
           mkdir -p downloads segments news
 
-      - name: 🔑 配置Git用户信息
+      - name: 配置Git用户信息
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: 🕐 生成统一时间戳
+      - name: 生成统一时间戳
         run: |
           timestamp=$(date +"%Y%m%d-%H%M")
           echo "TIMESTAMP=$timestamp" >> $GITHUB_ENV
           echo "本次流水线时间戳: $timestamp"
 
-      - name: 📥 步骤1: 下载抖音视频
+      - name: 步骤1:下载抖音视频
         if: github.event.inputs.douyin_url != ''
         run: |
           echo "开始下载抖音视频: ${{ github.event.inputs.douyin_url }}"
           python scripts/douyin_download.py "${{ github.event.inputs.douyin_url }}"
 
-      - name: 🎵 步骤2: MP4转MP3
+      - name: 步骤2:MP4转MP3
         if: github.event.inputs.douyin_url != ''
         run: |
           echo "开始转换MP4为MP3..."
@@ -91,14 +91,14 @@ jobs:
           fi
           cd ..
 
-      - name: 📝 步骤3: MP3转文字
+      - name: 步骤3:MP3转文字
         if: github.event.inputs.douyin_url != ''
         run: |
           echo "开始转换MP3到文字..."
           echo "使用时间戳: ${{ env.TIMESTAMP }}"
           python scripts/mp3_2_txt.py --timestamp ${{ env.TIMESTAMP }}
 
-      - name: 🤖 步骤4: AI总结
+      - name: 步骤4:AI总结
         if: github.event.inputs.douyin_url != ''
         env:
           QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
@@ -107,23 +107,24 @@ jobs:
           echo "使用时间戳: ${{ env.TIMESTAMP }}"
           python scripts/qwen_news_summary.py --timestamp ${{ env.TIMESTAMP }}
 
-      - name: 💾 步骤5: Git提交
+      - name: 步骤5:Git提交
         if: github.event.inputs.auto_commit != false
         run: |
           echo "开始Git提交..."
           python scripts/git_commit.py
 
-      - name: 🚀 推送到远程
+      - name: 推送到远程
         if: github.event.inputs.auto_push != false
         run: |
           echo "推送到远程仓库..."
           git push origin HEAD:${{ github.ref }}
 
-      - name: 📋 完成报告
+      - name: 完成报告
         run: |
           echo "🎉 新闻处理流水线完成！"
           echo "时间: $(date)"
           if [ -d "news" ]; then
             echo "生成的文件:"
             ls -la news/
+
           fi 
