@@ -1,4 +1,4 @@
-name: 新闻处理流水线
+name: News Summary
 
 on:
   workflow_dispatch:
@@ -128,3 +128,4 @@ jobs:
             ls -la news/
 
           fi 
+
