@@ -9,7 +9,7 @@ QWEN_API_KEY = "your_qwen_api_key_here"  # 请替换为您的实际API密钥
 QWEN_API_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
 
 # 文件路径配置
-AUDIO_PATH = "downloads/audio.mp3"  # 输入MP3文件路径
+AUDIO_PATH = ""  # 输入MP3文件路径
 SEGMENT_DIR = "segments"  # 音频切片目录
 OUTPUT_DIR = "news"  # 输出目录
 NEWS_DIR = "news"  # 新闻文件目录
