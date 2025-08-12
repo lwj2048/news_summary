@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import os
 from pathlib import Path
 from datetime import datetime
 
@@ -83,6 +84,11 @@ def git_push():
     if result:
         current_branch = result.stdout.strip()
         print(f"🌿 当前分支: {current_branch}")
+        
+        # 检查是否在GitHub Actions环境中
+        if os.environ.get('GITHUB_ACTIONS'):
+            print("🔧 检测到GitHub Actions环境，使用默认权限推送...")
+            # 在GitHub Actions中，直接推送即可，无需额外配置
         
         push_result = run_command(f"git push origin {current_branch}")
         if push_result:
