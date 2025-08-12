@@ -1,66 +1,129 @@
-name: News Summary
+name: 新闻处理流水线
 
 on:
-  workflow_dispatch: # 手动触发
+  workflow_dispatch:
     inputs:
-        url:
-          description: '抖音链接'
-          required: true
-          type: string
+      douyin_url:
+        description: '抖音视频链接'
+        required: true
+        type: string
+        default: 'https://www.douyin.com/video/example'
+      auto_commit:
+        description: '自动提交到Git'
+        required: false
+        type: boolean
+        default: true
+      auto_push:
+        description: '自动推送到远程'
+        required: false
+        type: boolean
+        default: true
+
+env:
+  PYTHON_VERSION: '3.11'
 
 jobs:
-  process_video:
+  news_processing:
     runs-on: ubuntu-latest
-
+    
     steps:
-      - name: Checkout repository
+      - name: 🚀 检出代码仓库
         uses: actions/checkout@v4
         with:
-          persist-credentials: true  # 让后面可以直接 push
+          persist-credentials: true
 
-      - name: Set up Python
+      - name: 🐍 设置Python环境
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install dependencies
+      - name: 📦 安装系统依赖
+        run: |
+          sudo apt update
+          sudo apt install -y ffmpeg git
+
+      - name: 🔧 安装Python依赖
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
-      - name: Download video
-        run: |
-          python scripts/douyin_download.py --url "${{ github.event.inputs.url }}" -n video
-
-      - name: video to mp3
-        run: |
-          sudo apt update
-          sudo apt install ffmpeg -y
-          ffmpeg -i video.mp4 -vn -acodec libmp3lame -ar 16000 -ac 1 audio.mp3
-
-      - name: mp3 to txt
-        run: |
           pip install git+https://github.com/openai/whisper.git
-          python scripts/mp3_2_txt.py
 
-      - name: Commit transcript file
+      - name: 📁 创建必要目录
+        run: |
+          mkdir -p downloads segments news
+
+      - name: 🔑 配置Git用户信息
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add news/*
-          git commit -m "Add news"
-          git push
 
-      - name: Generate summary with LLM
+      - name: 🕐 生成统一时间戳
+        run: |
+          timestamp=$(date +"%Y%m%d-%H%M")
+          echo "TIMESTAMP=$timestamp" >> $GITHUB_ENV
+          echo "本次流水线时间戳: $timestamp"
+
+      - name: 📥 步骤1: 下载抖音视频
+        if: github.event.inputs.douyin_url != ''
+        run: |
+          echo "开始下载抖音视频: ${{ github.event.inputs.douyin_url }}"
+          python scripts/douyin_download.py "${{ github.event.inputs.douyin_url }}"
+
+      - name: 🎵 步骤2: MP4转MP3
+        if: github.event.inputs.douyin_url != ''
+        run: |
+          echo "开始转换MP4为MP3..."
+          cd downloads
+          if [ -f "*.mp4" ]; then
+            video=$(ls *.mp4 | head -1)
+            echo "转换: $video"
+            mp3_name="${video%.mp4}.mp3"
+            ffmpeg -i "$video" -vn -acodec libmp3lame -ar 16000 -ac 1 -q:a 2 -y "$mp3_name"
+            if [ $? -eq 0 ]; then
+              echo "✅ 转换成功: $mp3_name"
+              rm "$video"
+              echo "🧹 已删除: $video"
+            else
+              echo "❌ 转换失败: $video"
+            fi
+          else
+            echo "❌ 未找到MP4文件"
+          fi
+          cd ..
+
+      - name: 📝 步骤3: MP3转文字
+        if: github.event.inputs.douyin_url != ''
+        run: |
+          echo "开始转换MP3到文字..."
+          echo "使用时间戳: ${{ env.TIMESTAMP }}"
+          python scripts/mp3_2_txt.py --timestamp ${{ env.TIMESTAMP }}
+
+      - name: 🤖 步骤4: AI总结
+        if: github.event.inputs.douyin_url != ''
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
         run: |
-          timestamp=$(date +"%Y%m%d_%H%M%S")
-          latest_file=$(ls -t transcripts | head -n 1)
-          python scripts/summarize.py --input transcripts/$latest_file --output summaries/${timestamp}_summary.txt
+          echo "开始生成AI总结..."
+          echo "使用时间戳: ${{ env.TIMESTAMP }}"
+          python scripts/qwen_news_summary.py --timestamp ${{ env.TIMESTAMP }}
 
-      - name: Commit summary file
+      - name: 💾 步骤5: Git提交
+        if: github.event.inputs.auto_commit != false
         run: |
-          git add summaries/
-          git commit -m "Add summary for transcript"
-          git push
+          echo "开始Git提交..."
+          python scripts/git_commit.py
+
+      - name: 🚀 推送到远程
+        if: github.event.inputs.auto_push != false
+        run: |
+          echo "推送到远程仓库..."
+          git push origin HEAD:${{ github.ref }}
+
+      - name: 📋 完成报告
+        run: |
+          echo "🎉 新闻处理流水线完成！"
+          echo "时间: $(date)"
+          if [ -d "news" ]; then
+            echo "生成的文件:"
+            ls -la news/
+          fi 

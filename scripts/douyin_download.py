@@ -299,6 +299,8 @@ class SimpleDouyinDownloader:
             print(f"\n下载视频时出错: {e}")
             return False
     
+
+    
     def sanitize_filename(self, filename):
         """清理文件名"""
         illegal_chars = r'[<>:"/\\|?*]'
@@ -346,13 +348,14 @@ class SimpleDouyinDownloader:
         filepath = os.path.join(output_dir, filename)
         
         # 下载视频
+        print("📥 开始下载视频...")
         success = self.download_video(video_info['video_url'], filepath)
         
         if success:
-            print(f"视频已保存到: {filepath}")
+            print(f"✅ 视频已保存到: {filepath}")
             return True
         else:
-            print("视频下载失败")
+            print("❌ 视频下载失败")
             return False
 
 def main():

@@ -2,3 +2,9 @@ requests
 tqdm 
 opencc-python-reimplemented 
 ffmpeg-python
+whisper
+openai-whisper
+transformers
+torch
+accelerate
+opencc
