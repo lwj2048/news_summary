@@ -2,6 +2,7 @@
 """
 新闻处理流水线主控制脚本
 按顺序执行：下载抖音视频 -> 转MP3 -> 转文字 -> AI总结 -> Git提交
+支持多种AI模型：通义千问、OpenAI、本地模型
 """
 
 import subprocess
@@ -9,6 +10,16 @@ import sys
 from pathlib import Path
 import time
 from datetime import datetime
+
+# 添加项目根目录到Python路径
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+try:
+    from config import AI_MODEL_TYPE, QWEN_API_KEY, OPENAI_API_KEY, LOCAL_API_URL, LOCAL_MODEL_NAME
+except ImportError:
+    print("❌ 无法导入配置文件，请确保config.py存在")
+    sys.exit(1)
 
 def run_script(script_name, description, args=None):
     """运行指定的Python脚本"""
@@ -51,6 +62,7 @@ def check_prerequisites():
         "douyin_download.py",
         "mp3_2_txt.py", 
         "qwen_news_summary.py",
+        "openai_news_summary.py",
         "git_commit.py"
     ]
     
@@ -61,6 +73,29 @@ def check_prerequisites():
             return False
     
     print("✅ 所有前置条件检查通过")
+    return True
+
+def check_ai_model_config():
+    """检查AI模型配置"""
+    print(f"🤖 检查AI模型配置...")
+    print(f"当前配置的模型类型: {AI_MODEL_TYPE}")
+    
+    if AI_MODEL_TYPE == "qwen":
+        if QWEN_API_KEY == "your_qwen_api_key_here":
+            print("⚠️  警告: 通义千问API密钥未配置，请修改config.py")
+        else:
+            print("✅ 通义千问配置正常")
+    elif AI_MODEL_TYPE == "openai":
+        if OPENAI_API_KEY == "your_openai_api_key_here":
+            print("⚠️  警告: OpenAI API密钥未配置，请修改config.py")
+        else:
+            print("✅ OpenAI配置正常")
+    elif AI_MODEL_TYPE == "local":
+        print(f"✅ 本地模型配置: {LOCAL_API_URL}")
+    else:
+        print(f"❌ 不支持的模型类型: {AI_MODEL_TYPE}")
+        return False
+    
     return True
 
 def convert_mp4_to_mp3():
@@ -107,7 +142,7 @@ def convert_mp4_to_mp3():
                 print(f"🧹 已删除: {mp4_file.name}")
                 success_count += 1
             else:
-                print(f"❌ 转换失败: {mp4_file.name}")
+                print(f"❌ 转换失败: {mp3_file.name}")
                 print(f"错误: {result.stderr}")
                 
         except Exception as e:
@@ -119,6 +154,36 @@ def convert_mp4_to_mp3():
     else:
         print("❌ 没有成功转换任何文件")
         return False
+
+def get_ai_summary_script_and_args(timestamp):
+    """根据配置获取AI总结脚本和参数"""
+    if AI_MODEL_TYPE == "qwen":
+        script_name = "qwen_news_summary.py"
+        args = ["--timestamp", timestamp]
+        print(f"🤖 使用通义千问模型进行AI总结")
+    elif AI_MODEL_TYPE == "openai":
+        script_name = "openai_news_summary.py"
+        args = ["--timestamp", timestamp]
+        print(f"🤖 使用OpenAI模型进行AI总结")
+    elif AI_MODEL_TYPE == "local":
+        # 根据本地模型类型选择脚本
+        if LOCAL_MODEL_NAME and "qwen" in LOCAL_MODEL_NAME.lower():
+            script_name = "qwen_news_summary.py"
+            args = ["--timestamp", timestamp, "--local"]
+            if LOCAL_MODEL_PATH and LOCAL_MODEL_PATH != "/path/to/your/local/model":
+                args.extend(["--model-path", LOCAL_MODEL_PATH])
+        else:
+            # 使用OpenAI兼容的本地服务
+            script_name = "openai_news_summary.py"
+            args = ["--timestamp", timestamp, "--local", "--api-url", LOCAL_API_URL]
+            if LOCAL_MODEL_NAME and LOCAL_MODEL_NAME != "qwen2.5:7b":
+                args.extend(["--model", LOCAL_MODEL_NAME])
+        print(f"🤖 使用本地模型进行AI总结: {LOCAL_MODEL_NAME}")
+    else:
+        print(f"❌ 不支持的模型类型: {AI_MODEL_TYPE}")
+        return None, None
+    
+    return script_name, args
 
 def main():
     """主函数"""
@@ -142,6 +207,11 @@ def main():
     # 检查前置条件
     if not check_prerequisites():
         print("❌ 前置条件检查失败，请检查脚本文件")
+        return
+    
+    # 检查AI模型配置
+    if not check_ai_model_config():
+        print("❌ AI模型配置检查失败，请检查config.py")
         return
     
     # 步骤1: 下载抖音视频
@@ -170,9 +240,13 @@ def main():
     # 等待一下确保文件写入完成
     time.sleep(2)
     
-    # 步骤3: AI总结（使用相同时间戳）
-    summary_args = ["--timestamp", timestamp]
-    if not run_script("qwen_news_summary.py", "步骤3: AI总结和投资建议", summary_args):
+    # 步骤3: AI总结（根据配置选择模型）
+    script_name, summary_args = get_ai_summary_script_and_args(timestamp)
+    if not script_name or not summary_args:
+        print("❌ AI模型配置错误，停止执行")
+        return
+    
+    if not run_script(script_name, "步骤3: AI总结和投资建议", summary_args):
         print("❌ 第三步失败，停止执行")
         return
     
@@ -180,12 +254,13 @@ def main():
     time.sleep(2)
     
     # 步骤4: Git提交
-    if not run_script("git_commit.py", "步骤4: Git提交和推送"):
-        print("❌ 第四步失败")
-        return
+    # if not run_script("git_commit.py", "步骤4: Git提交和推送"):
+    #     print("❌ 第四步失败")
+    #     return
     
     print("\n🎉 所有步骤完成！")
     print(f"📅 本次流水线时间戳: {timestamp}")
+    print(f"🤖 使用的AI模型: {AI_MODEL_TYPE}")
     print("📁 生成的文件:")
     
     # 显示生成的文件
@@ -195,7 +270,7 @@ def main():
         for file in files:
             print(f"   📄 {file.name}")
     
-    print("🔗 文件已自动提交到Git仓库")
+    # print("🔗 文件已自动提交到Git仓库")
 
 if __name__ == "__main__":
     main() 
