@@ -5,6 +5,7 @@ import subprocess
 from zoneinfo import ZoneInfo
 
 from scripts.douyin_author_feed import (
+    build_author_candidate_urls,
     extract_author_id,
     extract_video_entries,
     filter_today_videos,
@@ -22,6 +23,20 @@ class DouyinAuthorFeedTests(unittest.TestCase):
         self.assertEqual(
             author_id,
             "MS4wLjABAAAAWGs2N4r_PbCH8uXi07DlK8G5T-dz2EA_bnoWb00V5BaR_-LdVLMDxIfqFbU8qbwX",
+        )
+
+    def test_build_author_candidate_urls_includes_share_user_fallback(self):
+        author_id = "MS4wLjABAAAAWGs2N4r_PbCH8uXi07DlK8G5T-dz2EA_bnoWb00V5BaR_-LdVLMDxIfqFbU8qbwX"
+
+        candidates = build_author_candidate_urls(f"https://www.douyin.com/user/{author_id}")
+
+        self.assertEqual(
+            candidates,
+            [
+                f"https://www.douyin.com/user/{author_id}",
+                f"https://www.douyin.com/user/{author_id}?showTab=post",
+                f"https://www.iesdouyin.com/share/user/{author_id}",
+            ],
         )
 
     def test_extract_video_entries_normalizes_flat_playlist_entries(self):
@@ -124,6 +139,38 @@ class DouyinAuthorFeedTests(unittest.TestCase):
                     "title": "video 100",
                     "published_at_raw": 1781746200,
                 }
+            ],
+        )
+
+    @patch("scripts.douyin_author_feed.subprocess.run")
+    def test_get_author_videos_falls_back_to_share_user_url(self, mock_run: Mock):
+        mock_run.side_effect = [
+            Mock(returncode=1, stdout="", stderr="Unsupported URL"),
+            Mock(returncode=1, stdout="", stderr="Unsupported URL"),
+            Mock(
+                returncode=0,
+                stdout=(
+                    '{"entries":[{"id":"100","title":"video 100","webpage_url":"https://www.douyin.com/video/100",'
+                    '"timestamp":1781746200}]}'
+                ),
+                stderr="",
+            ),
+        ]
+
+        author_url = (
+            "https://www.douyin.com/user/"
+            "MS4wLjABAAAAWGs2N4r_PbCH8uXi07DlK8G5T-dz2EA_bnoWb00V5BaR_-LdVLMDxIfqFbU8qbwX"
+        )
+        videos = get_author_videos(author_url)
+
+        self.assertEqual(videos[0]["video_id"], "100")
+        called_urls = [call.args[0][-1] for call in mock_run.call_args_list]
+        self.assertEqual(
+            called_urls,
+            [
+                author_url,
+                f"{author_url}?showTab=post",
+                "https://www.iesdouyin.com/share/user/MS4wLjABAAAAWGs2N4r_PbCH8uXi07DlK8G5T-dz2EA_bnoWb00V5BaR_-LdVLMDxIfqFbU8qbwX",
             ],
         )
 

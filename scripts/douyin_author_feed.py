@@ -30,6 +30,24 @@ def extract_author_id(author_url: str) -> str:
     return path_segments[1]
 
 
+def build_author_candidate_urls(author_url: str) -> list[str]:
+    """为作者页抓取生成一组候选 URL。"""
+    author_id = extract_author_id(author_url)
+    candidates = [
+        author_url,
+        f"https://www.douyin.com/user/{author_id}",
+        f"https://www.douyin.com/user/{author_id}?showTab=post",
+        f"https://www.iesdouyin.com/share/user/{author_id}",
+    ]
+
+    unique_candidates: list[str] = []
+    for candidate in candidates:
+        normalized = candidate.strip()
+        if normalized and normalized not in unique_candidates:
+            unique_candidates.append(normalized)
+    return unique_candidates
+
+
 def extract_video_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """把 yt-dlp 平铺列表 payload 映射为统一视频结构。"""
     videos: list[dict[str, Any]] = []
@@ -77,33 +95,40 @@ def get_author_videos(
     timeout: int = 60,
 ) -> list[dict[str, Any]]:
     """用 yt-dlp 抓取作者视频列表。"""
-    extract_author_id(author_url)
+    candidate_urls = build_author_candidate_urls(author_url)
+    failures: list[str] = []
 
-    try:
-        result = subprocess.run(
-            [yt_dlp_bin, "--flat-playlist", "--dump-single-json", author_url],
-            capture_output=True,
-            check=False,
-            text=True,
-            timeout=timeout,
-        )
-    except FileNotFoundError as exc:
-        raise RuntimeError(f"yt-dlp not found: {yt_dlp_bin}") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"yt-dlp timed out after {timeout}s for {author_url}") from exc
-    if result.returncode != 0:
-        stderr = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
-        raise RuntimeError(f"yt-dlp failed for {author_url}: {stderr}")
+    for candidate_url in candidate_urls:
+        try:
+            result = subprocess.run(
+                [yt_dlp_bin, "--flat-playlist", "--dump-single-json", candidate_url],
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=timeout,
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError(f"yt-dlp not found: {yt_dlp_bin}") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(f"yt-dlp timed out after {timeout}s for {candidate_url}") from exc
 
-    try:
-        payload = json.loads(result.stdout)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"yt-dlp returned invalid JSON for {author_url}") from exc
+        if result.returncode != 0:
+            stderr = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
+            failures.append(f"{candidate_url} -> {stderr}")
+            continue
 
-    if not isinstance(payload, dict):
-        raise RuntimeError(f"yt-dlp returned unexpected payload type for {author_url}")
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"yt-dlp returned invalid JSON for {candidate_url}") from exc
 
-    return extract_video_entries(payload)
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"yt-dlp returned unexpected payload type for {candidate_url}")
+
+        return extract_video_entries(payload)
+
+    failure_summary = " | ".join(failures) if failures else "no candidate URL succeeded"
+    raise RuntimeError(f"yt-dlp failed for {author_url}: {failure_summary}")
 
 
 def parse_publish_time(value: Any) -> datetime | None:
