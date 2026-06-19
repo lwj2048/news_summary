@@ -106,18 +106,17 @@ def _playwright_browser() -> Iterator[Any]:
         raise RuntimeError("playwright is not installed") from exc
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
+        browser = playwright.chromium.launch(
+            headless=True,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
         try:
             yield browser
         finally:
             browser.close()
 
 
-def _extract_author_video_cards(page: Any, author_url: str) -> list[dict[str, str]]:
-    normalized_url = normalize_author_url(author_url)
-    page.goto(normalized_url, wait_until="domcontentloaded", timeout=30000)
-    page.wait_for_timeout(2500)
-
+def _extract_video_cards_from_dom(page: Any) -> list[dict[str, str]]:
     cards = page.evaluate(
         """
         () => {
@@ -148,7 +147,7 @@ def _extract_author_video_cards(page: Any, author_url: str) -> list[dict[str, st
     )
 
     if not isinstance(cards, list):
-        raise RuntimeError(f"unexpected author page payload for {normalized_url}")
+        raise RuntimeError("unexpected author page payload")
 
     normalized_cards: list[dict[str, str]] = []
     for card in cards:
@@ -168,6 +167,30 @@ def _extract_author_video_cards(page: Any, author_url: str) -> list[dict[str, st
         )
 
     return normalized_cards
+
+
+def _looks_like_challenge_page(page: Any) -> bool:
+    page_html = page.content()
+    return "__ac_signature" in page_html or "window.byted_acrawler" in page_html
+
+
+def _extract_author_video_cards(page: Any, author_url: str) -> list[dict[str, str]]:
+    normalized_url = normalize_author_url(author_url)
+
+    for _attempt in range(3):
+        page.goto(normalized_url, wait_until="domcontentloaded", timeout=60000)
+
+        for _poll in range(6):
+            page.wait_for_timeout(2000)
+            cards = _extract_video_cards_from_dom(page)
+            if cards:
+                return cards
+            if not _looks_like_challenge_page(page):
+                break
+
+        page.reload(wait_until="domcontentloaded", timeout=60000)
+
+    return []
 
 
 def _extract_video_publish_time(page: Any, video_url: str) -> datetime | None:
@@ -217,7 +240,16 @@ def get_author_videos(
         target_day = datetime.now(SHANGHAI_TZ).date()
 
     with _playwright_browser() as browser:
-        context = browser.new_context()
+        context = browser.new_context(
+            locale="zh-CN",
+            timezone_id="Asia/Shanghai",
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/137.0.0.0 Safari/537.36"
+            ),
+            viewport={"width": 1440, "height": 1200},
+        )
         author_page = context.new_page()
         detail_page = context.new_page()
         try:
