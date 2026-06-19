@@ -128,6 +128,27 @@ python scripts/mp3_2_txt.py --timestamp $timestamp
 python scripts/qwen_news_summary.py --timestamp $timestamp
 ```
 
+### 5. 每日批处理指定博主
+
+```bash
+python scripts/run_daily_author_pipeline.py
+```
+
+说明：
+
+- 默认抓取固定抖音博主主页：`https://www.douyin.com/user/MS4wLjABAAAAWGs2N4r_PbCH8uXi07DlK8G5T-dz2EA_bnoWb00V5BaR_-LdVLMDxIfqFbU8qbwX`
+- 只处理当天新发布且未处理的视频
+- 使用 `data/processed_douyin_videos.json` 按 `video_id` 去重
+- 单条视频仍然复用现有 `python scripts/run_pipeline.py "<视频链接>"`
+- 如需临时切换目标，可传 `--author-url`、`--author-id` 和 `--state-file`
+
+### 6. GitHub Actions 定时任务
+
+- 新增 `.github/workflows/douyin_daily_author_pipeline.yml`
+- 支持每天定时执行作者日批处理
+- 支持在 GitHub Actions 页面手动触发
+- 定时任务只会自动提交 `news/` 和 `data/processed_douyin_videos.json`
+
 ## 本地模型部署
 
 ### 1. 使用Ollama
@@ -178,13 +199,17 @@ python -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2-7B-Instruct --ho
 news_summary/
 ├── scripts/                    # 核心脚本
 │   ├── run_pipeline.py        # 完整流水线
+│   ├── run_daily_author_pipeline.py # 抖音博主每日批处理
 │   ├── douyin_download.py     # 下载抖音视频
+│   ├── douyin_author_feed.py  # 抖音博主视频列表抓取
+│   ├── douyin_state.py        # 已处理视频状态存储
 │   ├── mp3_2_txt.py          # MP3转文字（含错别字校验）
 │   ├── qwen_news_summary.py   # 通义千问AI总结
 │   ├── openai_news_summary.py # OpenAI AI总结
 │   └── git_commit.py          # Git提交
 ├── config.py                   # 配置文件
 ├── requirements.txt            # 依赖
+├── data/                       # 每日批处理去重状态
 └── .github/workflows/          # GitHub Actions
 ```
 

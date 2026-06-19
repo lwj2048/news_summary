@@ -1,0 +1,62 @@
+name: Douyin Daily Author Pipeline
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: "3.11"
+  QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+jobs:
+  daily_author_pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: install ffmpeg and git
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg git
+
+      - name: install requirements
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: create workspace directories
+        run: |
+          mkdir -p downloads segments news data
+
+      - name: configure git user
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: run daily author pipeline
+        run: python scripts/run_daily_author_pipeline.py
+
+      - name: commit and push changes
+        run: |
+          changed_files="$(git status --porcelain -- news/ data/processed_douyin_videos.json)"
+          if [ -n "$changed_files" ]; then
+            git add news/ data/processed_douyin_videos.json
+            git commit -m "chore: update daily douyin author pipeline output"
+            git push origin HEAD:${GITHUB_REF_NAME}
+          else
+            echo "无变更，跳过 push"
+          fi
