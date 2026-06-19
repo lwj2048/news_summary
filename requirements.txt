@@ -9,4 +9,4 @@ torch
 accelerate
 opencc
 pytest
-yt-dlp
+playwright

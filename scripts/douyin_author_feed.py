@@ -1,24 +1,19 @@
 #!/usr/bin/env python3
-"""抖音作者视频列表的时间解析与按天过滤。"""
+"""抖音作者视频列表抓取与按天过滤。"""
 
 from __future__ import annotations
 
-import json
-import subprocess
+import re
+from contextlib import contextmanager
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Iterator
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
-
-
-def _looks_like_http_url(value: Any) -> bool:
-    if value is None:
-        return False
-    normalized = str(value).strip().lower()
-    return normalized.startswith("http://") or normalized.startswith("https://")
+PUBLISH_TIME_PATTERN = re.compile(r"发布时间[:：]\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})")
+TITLE_DATE_PATTERN = re.compile(r"(20\d{6})(?!\d)")
 
 
 def extract_author_id(author_url: str) -> str:
@@ -30,105 +25,10 @@ def extract_author_id(author_url: str) -> str:
     return path_segments[1]
 
 
-def build_author_candidate_urls(author_url: str) -> list[str]:
-    """为作者页抓取生成一组候选 URL。"""
+def normalize_author_url(author_url: str) -> str:
+    """规范化作者主页 URL。"""
     author_id = extract_author_id(author_url)
-    candidates = [
-        author_url,
-        f"https://www.douyin.com/user/{author_id}",
-        f"https://www.douyin.com/user/{author_id}?showTab=post",
-        f"https://www.iesdouyin.com/share/user/{author_id}",
-    ]
-
-    unique_candidates: list[str] = []
-    for candidate in candidates:
-        normalized = candidate.strip()
-        if normalized and normalized not in unique_candidates:
-            unique_candidates.append(normalized)
-    return unique_candidates
-
-
-def extract_video_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """把 yt-dlp 平铺列表 payload 映射为统一视频结构。"""
-    videos: list[dict[str, Any]] = []
-    for entry in payload.get("entries", []):
-        if not isinstance(entry, dict):
-            continue
-
-        raw_video_id = entry.get("id")
-        if raw_video_id is None:
-            continue
-
-        video_id = str(raw_video_id).strip()
-        if not video_id:
-            continue
-
-        raw_webpage_url = entry.get("webpage_url")
-        raw_video_url = entry.get("url")
-        if _looks_like_http_url(raw_webpage_url):
-            video_url = str(raw_webpage_url).strip()
-        elif _looks_like_http_url(raw_video_url):
-            video_url = str(raw_video_url).strip()
-        else:
-            video_url = f"https://www.douyin.com/video/{video_id}"
-
-        title = entry.get("title")
-        published_at_raw = entry.get("timestamp")
-        if published_at_raw is None:
-            published_at_raw = entry.get("create_time")
-
-        videos.append(
-            {
-                "video_id": video_id,
-                "video_url": video_url,
-                "title": "" if title is None else str(title),
-                "published_at_raw": published_at_raw,
-            }
-        )
-
-    return videos
-
-
-def get_author_videos(
-    author_url: str,
-    yt_dlp_bin: str = "yt-dlp",
-    timeout: int = 60,
-) -> list[dict[str, Any]]:
-    """用 yt-dlp 抓取作者视频列表。"""
-    candidate_urls = build_author_candidate_urls(author_url)
-    failures: list[str] = []
-
-    for candidate_url in candidate_urls:
-        try:
-            result = subprocess.run(
-                [yt_dlp_bin, "--flat-playlist", "--dump-single-json", candidate_url],
-                capture_output=True,
-                check=False,
-                text=True,
-                timeout=timeout,
-            )
-        except FileNotFoundError as exc:
-            raise RuntimeError(f"yt-dlp not found: {yt_dlp_bin}") from exc
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError(f"yt-dlp timed out after {timeout}s for {candidate_url}") from exc
-
-        if result.returncode != 0:
-            stderr = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
-            failures.append(f"{candidate_url} -> {stderr}")
-            continue
-
-        try:
-            payload = json.loads(result.stdout)
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(f"yt-dlp returned invalid JSON for {candidate_url}") from exc
-
-        if not isinstance(payload, dict):
-            raise RuntimeError(f"yt-dlp returned unexpected payload type for {candidate_url}")
-
-        return extract_video_entries(payload)
-
-    failure_summary = " | ".join(failures) if failures else "no candidate URL succeeded"
-    raise RuntimeError(f"yt-dlp failed for {author_url}: {failure_summary}")
+    return f"https://www.douyin.com/user/{author_id}"
 
 
 def parse_publish_time(value: Any) -> datetime | None:
@@ -159,6 +59,25 @@ def parse_publish_time(value: Any) -> datetime | None:
     return datetime.fromtimestamp(timestamp, tz=SHANGHAI_TZ)
 
 
+def parse_publish_time_text(value: str) -> datetime | None:
+    """从抖音页面文案中提取发布时间。"""
+    match = PUBLISH_TIME_PATTERN.search(value)
+    if match is None:
+        return None
+    return datetime.fromisoformat(f"{match.group(1)}T{match.group(2)}:00+08:00")
+
+
+def extract_title_date(value: str) -> date | None:
+    """从标题尾部的 YYYYMMDD 解析日期。"""
+    match = TITLE_DATE_PATTERN.search(value)
+    if match is None:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%Y%m%d").date()
+    except ValueError:
+        return None
+
+
 def filter_today_videos(videos: list[dict[str, Any]], target_day: date | None = None) -> list[dict[str, Any]]:
     """过滤目标日期的视频。
 
@@ -177,3 +96,156 @@ def filter_today_videos(videos: list[dict[str, Any]], target_day: date | None = 
         filtered.append({**video, "published_at": published_at.isoformat()})
 
     return filtered
+
+
+@contextmanager
+def _playwright_browser() -> Iterator[Any]:
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise RuntimeError("playwright is not installed") from exc
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+            yield browser
+        finally:
+            browser.close()
+
+
+def _extract_author_video_cards(page: Any, author_url: str) -> list[dict[str, str]]:
+    normalized_url = normalize_author_url(author_url)
+    page.goto(normalized_url, wait_until="domcontentloaded", timeout=30000)
+    page.wait_for_timeout(2500)
+
+    cards = page.evaluate(
+        """
+        () => {
+          const anchors = Array.from(document.querySelectorAll('a[href*="/video/"]'));
+          const seen = new Set();
+          const items = [];
+
+          for (const anchor of anchors) {
+            const href = anchor.href || "";
+            const match = href.match(/\\/video\\/(\\d+)/);
+            if (!match) continue;
+
+            const videoId = match[1];
+            if (seen.has(videoId)) continue;
+            seen.add(videoId);
+
+            const text = (anchor.textContent || "").replace(/\\s+/g, " ").trim();
+            items.push({
+              video_id: videoId,
+              video_url: `https://www.douyin.com/video/${videoId}`,
+              title: text,
+            });
+          }
+
+          return items;
+        }
+        """
+    )
+
+    if not isinstance(cards, list):
+        raise RuntimeError(f"unexpected author page payload for {normalized_url}")
+
+    normalized_cards: list[dict[str, str]] = []
+    for card in cards:
+        if not isinstance(card, dict):
+            continue
+        video_id = str(card.get("video_id", "")).strip()
+        video_url = str(card.get("video_url", "")).strip()
+        title = str(card.get("title", "")).strip()
+        if not video_id or not video_url:
+            continue
+        normalized_cards.append(
+            {
+                "video_id": video_id,
+                "video_url": video_url,
+                "title": title,
+            }
+        )
+
+    return normalized_cards
+
+
+def _extract_video_publish_time(page: Any, video_url: str) -> datetime | None:
+    page.goto(video_url, wait_until="domcontentloaded", timeout=30000)
+    page.wait_for_timeout(1500)
+
+    page_text = page.locator("body").inner_text(timeout=10000)
+    published_at = parse_publish_time_text(page_text)
+    if published_at is not None:
+        return published_at
+
+    snapshot_text = page.locator("html").text_content(timeout=10000) or ""
+    return parse_publish_time_text(snapshot_text)
+
+
+def _build_video_record(card: dict[str, str], published_at: datetime | None) -> dict[str, Any]:
+    published_at_raw: int | None = None
+    if published_at is not None:
+        published_at_raw = int(published_at.timestamp() * 1000)
+    else:
+        title_date = extract_title_date(card.get("title", ""))
+        if title_date is not None:
+            fallback_dt = datetime(
+                title_date.year,
+                title_date.month,
+                title_date.day,
+                tzinfo=SHANGHAI_TZ,
+            )
+            published_at_raw = int(fallback_dt.timestamp() * 1000)
+
+    return {
+        "video_id": card["video_id"],
+        "video_url": card["video_url"],
+        "title": card.get("title", ""),
+        "published_at_raw": published_at_raw,
+    }
+
+
+def get_author_videos(
+    author_url: str,
+    max_detail_pages: int = 12,
+    consecutive_old_limit: int = 3,
+    target_day: date | None = None,
+) -> list[dict[str, Any]]:
+    """用浏览器抓取作者视频列表，并补充发布时间。"""
+    if target_day is None:
+        target_day = datetime.now(SHANGHAI_TZ).date()
+
+    with _playwright_browser() as browser:
+        context = browser.new_context()
+        author_page = context.new_page()
+        detail_page = context.new_page()
+        try:
+            cards = _extract_author_video_cards(author_page, author_url)
+            if not cards:
+                raise RuntimeError(f"no douyin videos found for {normalize_author_url(author_url)}")
+
+            videos: list[dict[str, Any]] = []
+            consecutive_old_count = 0
+
+            for card in cards:
+                published_at = _extract_video_publish_time(detail_page, card["video_url"])
+                video_record = _build_video_record(card, published_at)
+                videos.append(video_record)
+
+                record_day = None
+                if published_at is not None:
+                    record_day = published_at.date()
+                else:
+                    record_day = extract_title_date(card.get("title", ""))
+
+                if record_day is not None and record_day < target_day:
+                    consecutive_old_count += 1
+                else:
+                    consecutive_old_count = 0
+                if len(videos) >= max_detail_pages and consecutive_old_count >= consecutive_old_limit:
+                    break
+
+            return videos
+        finally:
+            context.close()

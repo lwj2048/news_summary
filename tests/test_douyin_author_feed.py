@@ -1,17 +1,87 @@
 import unittest
 from datetime import date, datetime
-from unittest.mock import Mock, patch
-import subprocess
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from scripts.douyin_author_feed import (
-    build_author_candidate_urls,
+    _build_video_record,
     extract_author_id,
-    extract_video_entries,
+    extract_title_date,
     filter_today_videos,
     get_author_videos,
+    normalize_author_url,
     parse_publish_time,
+    parse_publish_time_text,
 )
+
+
+class FakePage:
+    def __init__(self, author_cards=None, page_text_by_url=None):
+        self.author_cards = author_cards or []
+        self.page_text_by_url = page_text_by_url or {}
+        self.current_url = ""
+
+    def goto(self, url: str, wait_until: str, timeout: int) -> None:
+        self.current_url = url
+
+    def wait_for_timeout(self, _timeout_ms: int) -> None:
+        return None
+
+    def evaluate(self, _script: str):
+        return self.author_cards
+
+    def locator(self, _selector: str):
+        return FakeLocator(self.page_text_by_url.get(self.current_url, ""))
+
+
+class FakeLocator:
+    def __init__(self, text: str):
+        self.text = text
+
+    def inner_text(self, timeout: int) -> str:
+        return self.text
+
+    def text_content(self, timeout: int) -> str:
+        return self.text
+
+
+class FakeContext:
+    def __init__(self, author_cards=None, page_text_by_url=None):
+        self.author_cards = author_cards or []
+        self.page_text_by_url = page_text_by_url or {}
+        self.page_index = 0
+
+    def new_page(self):
+        self.page_index += 1
+        if self.page_index == 1:
+            return FakePage(author_cards=self.author_cards, page_text_by_url=self.page_text_by_url)
+        return FakePage(page_text_by_url=self.page_text_by_url)
+
+    def close(self) -> None:
+        return None
+
+
+class FakeBrowser:
+    def __init__(self, author_cards=None, page_text_by_url=None):
+        self.author_cards = author_cards or []
+        self.page_text_by_url = page_text_by_url or {}
+
+    def new_context(self):
+        return FakeContext(author_cards=self.author_cards, page_text_by_url=self.page_text_by_url)
+
+    def close(self) -> None:
+        return None
+
+
+class FakeBrowserContextManager:
+    def __init__(self, browser: FakeBrowser):
+        self.browser = browser
+
+    def __enter__(self):
+        return self.browser
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
 
 class DouyinAuthorFeedTests(unittest.TestCase):
@@ -25,44 +95,61 @@ class DouyinAuthorFeedTests(unittest.TestCase):
             "MS4wLjABAAAAWGs2N4r_PbCH8uXi07DlK8G5T-dz2EA_bnoWb00V5BaR_-LdVLMDxIfqFbU8qbwX",
         )
 
-    def test_build_author_candidate_urls_includes_share_user_fallback(self):
-        author_id = "MS4wLjABAAAAWGs2N4r_PbCH8uXi07DlK8G5T-dz2EA_bnoWb00V5BaR_-LdVLMDxIfqFbU8qbwX"
-
-        candidates = build_author_candidate_urls(f"https://www.douyin.com/user/{author_id}")
-
-        self.assertEqual(
-            candidates,
-            [
-                f"https://www.douyin.com/user/{author_id}",
-                f"https://www.douyin.com/user/{author_id}?showTab=post",
-                f"https://www.iesdouyin.com/share/user/{author_id}",
-            ],
+    def test_normalize_author_url_strips_query(self):
+        normalized = normalize_author_url(
+            "https://www.douyin.com/user/MS4wLjABAAAAWGs2N4r_PbCH8uXi07DlK8G5T-dz2EA_bnoWb00V5BaR_-LdVLMDxIfqFbU8qbwX?from_tab_name=main"
         )
 
-    def test_extract_video_entries_normalizes_flat_playlist_entries(self):
-        payload = {
-            "entries": [
-                {
-                    "id": "100",
-                    "url": "https://www.douyin.com/video/100",
-                    "title": "video 100",
-                    "timestamp": 1781746200,
-                },
-                {
-                    "id": "200",
-                    "webpage_url": "https://www.douyin.com/video/200",
-                    "title": "video 200",
-                    "create_time": 1781746300,
-                },
-                {
-                    "id": "300",
-                    "title": "video 300",
-                    "timestamp": 1781746400,
-                },
-            ]
-        }
+        self.assertEqual(
+            normalized,
+            "https://www.douyin.com/user/MS4wLjABAAAAWGs2N4r_PbCH8uXi07DlK8G5T-dz2EA_bnoWb00V5BaR_-LdVLMDxIfqFbU8qbwX",
+        )
 
-        videos = extract_video_entries(payload)
+    def test_parse_publish_time_text_reads_visible_publish_label(self):
+        published_at = parse_publish_time_text("点赞 12 发布时间：2026-06-17 14:51 全部评论")
+
+        self.assertEqual(
+            published_at,
+            datetime(2026, 6, 17, 14, 51, tzinfo=ZoneInfo("Asia/Shanghai")),
+        )
+
+    def test_extract_title_date_reads_yyyymmdd_suffix(self):
+        self.assertEqual(extract_title_date("行业更新 20260617"), date(2026, 6, 17))
+        self.assertIsNone(extract_title_date("行业更新"))
+
+    def test_build_video_record_falls_back_to_title_date(self):
+        record = _build_video_record(
+            {
+                "video_id": "123",
+                "video_url": "https://www.douyin.com/video/123",
+                "title": "行业更新 20260617",
+            },
+            published_at=None,
+        )
+
+        self.assertEqual(record["video_id"], "123")
+        self.assertEqual(
+            record["published_at_raw"],
+            int(datetime(2026, 6, 17, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp() * 1000),
+        )
+
+    @patch("scripts.douyin_author_feed._playwright_browser")
+    def test_get_author_videos_reads_author_cards_and_publish_time(self, mock_browser):
+        author_cards = [
+            {
+                "video_id": "100",
+                "video_url": "https://www.douyin.com/video/100",
+                "title": "行业更新 20260618",
+            }
+        ]
+        page_text_by_url = {
+            "https://www.douyin.com/video/100": "发布时间：2026-06-18 09:30",
+        }
+        mock_browser.return_value = FakeBrowserContextManager(
+            FakeBrowser(author_cards=author_cards, page_text_by_url=page_text_by_url)
+        )
+
+        videos = get_author_videos("https://www.douyin.com/user/test-author", target_day=date(2026, 6, 18))
 
         self.assertEqual(
             videos,
@@ -70,136 +157,80 @@ class DouyinAuthorFeedTests(unittest.TestCase):
                 {
                     "video_id": "100",
                     "video_url": "https://www.douyin.com/video/100",
-                    "title": "video 100",
-                    "published_at_raw": 1781746200,
-                },
-                {
-                    "video_id": "200",
-                    "video_url": "https://www.douyin.com/video/200",
-                    "title": "video 200",
-                    "published_at_raw": 1781746300,
-                },
-                {
-                    "video_id": "300",
-                    "video_url": "https://www.douyin.com/video/300",
-                    "title": "video 300",
-                    "published_at_raw": 1781746400,
-                },
+                    "title": "行业更新 20260618",
+                    "published_at_raw": int(
+                        datetime(2026, 6, 18, 9, 30, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp() * 1000
+                    ),
+                }
             ],
         )
 
-    def test_extract_video_entries_prefers_webpage_url_over_url(self):
-        payload = {
-            "entries": [
-                {
-                    "id": "500",
-                    "url": "video/500",
-                    "webpage_url": "https://www.douyin.com/video/500",
-                    "title": "video 500",
-                    "timestamp": 1781746500,
-                }
-            ]
-        }
+    @patch("scripts.douyin_author_feed._playwright_browser")
+    def test_get_author_videos_falls_back_to_title_date_when_publish_text_missing(self, mock_browser):
+        author_cards = [
+            {
+                "video_id": "100",
+                "video_url": "https://www.douyin.com/video/100",
+                "title": "行业更新 20260618",
+            }
+        ]
+        mock_browser.return_value = FakeBrowserContextManager(FakeBrowser(author_cards=author_cards))
 
-        videos = extract_video_entries(payload)
+        videos = get_author_videos("https://www.douyin.com/user/test-author", target_day=date(2026, 6, 18))
 
         self.assertEqual(
-            videos,
-            [
-                {
-                    "video_id": "500",
-                    "video_url": "https://www.douyin.com/video/500",
-                    "title": "video 500",
-                    "published_at_raw": 1781746500,
-                }
-            ],
+            videos[0]["published_at_raw"],
+            int(datetime(2026, 6, 18, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp() * 1000),
         )
 
-    @patch("scripts.douyin_author_feed.subprocess.run")
-    def test_get_author_videos_reads_flat_playlist_json(self, mock_run: Mock):
-        mock_run.return_value = Mock(
-            returncode=0,
-            stdout=(
-                '{"entries":[{"id":"100","title":"video 100","webpage_url":"https://www.douyin.com/video/100",'
-                '"timestamp":1781746200}]}'
-            ),
-            stderr="",
+    @patch("scripts.douyin_author_feed._playwright_browser")
+    def test_get_author_videos_stops_after_multiple_older_videos(self, mock_browser):
+        author_cards = [
+            {
+                "video_id": "today",
+                "video_url": "https://www.douyin.com/video/today",
+                "title": "行业更新 20260618",
+            },
+            {
+                "video_id": "old-1",
+                "video_url": "https://www.douyin.com/video/old-1",
+                "title": "行业更新 20260617",
+            },
+            {
+                "video_id": "old-2",
+                "video_url": "https://www.douyin.com/video/old-2",
+                "title": "行业更新 20260616",
+            },
+            {
+                "video_id": "old-3",
+                "video_url": "https://www.douyin.com/video/old-3",
+                "title": "行业更新 20260615",
+            },
+            {
+                "video_id": "old-4",
+                "video_url": "https://www.douyin.com/video/old-4",
+                "title": "行业更新 20260614",
+            },
+        ]
+        page_text_by_url = {
+            "https://www.douyin.com/video/today": "发布时间：2026-06-18 09:30",
+            "https://www.douyin.com/video/old-1": "发布时间：2026-06-17 09:30",
+            "https://www.douyin.com/video/old-2": "发布时间：2026-06-16 09:30",
+            "https://www.douyin.com/video/old-3": "发布时间：2026-06-15 09:30",
+            "https://www.douyin.com/video/old-4": "发布时间：2026-06-14 09:30",
+        }
+        mock_browser.return_value = FakeBrowserContextManager(
+            FakeBrowser(author_cards=author_cards, page_text_by_url=page_text_by_url)
         )
 
         videos = get_author_videos(
-            "https://www.douyin.com/user/MS4wLjABAAAAWGs2N4r_PbCH8uXi07DlK8G5T-dz2EA_bnoWb00V5BaR_-LdVLMDxIfqFbU8qbwX"
+            "https://www.douyin.com/user/test-author",
+            max_detail_pages=1,
+            consecutive_old_limit=3,
+            target_day=date(2026, 6, 18),
         )
 
-        self.assertEqual(
-            videos,
-            [
-                {
-                    "video_id": "100",
-                    "video_url": "https://www.douyin.com/video/100",
-                    "title": "video 100",
-                    "published_at_raw": 1781746200,
-                }
-            ],
-        )
-
-    @patch("scripts.douyin_author_feed.subprocess.run")
-    def test_get_author_videos_falls_back_to_share_user_url(self, mock_run: Mock):
-        mock_run.side_effect = [
-            Mock(returncode=1, stdout="", stderr="Unsupported URL"),
-            Mock(returncode=1, stdout="", stderr="Unsupported URL"),
-            Mock(
-                returncode=0,
-                stdout=(
-                    '{"entries":[{"id":"100","title":"video 100","webpage_url":"https://www.douyin.com/video/100",'
-                    '"timestamp":1781746200}]}'
-                ),
-                stderr="",
-            ),
-        ]
-
-        author_url = (
-            "https://www.douyin.com/user/"
-            "MS4wLjABAAAAWGs2N4r_PbCH8uXi07DlK8G5T-dz2EA_bnoWb00V5BaR_-LdVLMDxIfqFbU8qbwX"
-        )
-        videos = get_author_videos(author_url)
-
-        self.assertEqual(videos[0]["video_id"], "100")
-        called_urls = [call.args[0][-1] for call in mock_run.call_args_list]
-        self.assertEqual(
-            called_urls,
-            [
-                author_url,
-                f"{author_url}?showTab=post",
-                "https://www.iesdouyin.com/share/user/MS4wLjABAAAAWGs2N4r_PbCH8uXi07DlK8G5T-dz2EA_bnoWb00V5BaR_-LdVLMDxIfqFbU8qbwX",
-            ],
-        )
-
-    @patch("scripts.douyin_author_feed.subprocess.run")
-    def test_get_author_videos_raises_clear_error_when_command_fails(self, mock_run: Mock):
-        mock_run.return_value = Mock(returncode=1, stdout="", stderr="site blocked")
-
-        with self.assertRaisesRegex(RuntimeError, "yt-dlp .* site blocked"):
-            get_author_videos(
-                "https://www.douyin.com/user/MS4wLjABAAAAWGs2N4r_PbCH8uXi07DlK8G5T-dz2EA_bnoWb00V5BaR_-LdVLMDxIfqFbU8qbwX"
-            )
-
-    @patch("scripts.douyin_author_feed.subprocess.run")
-    def test_get_author_videos_raises_clear_error_when_yt_dlp_missing(self, mock_run: Mock):
-        mock_run.side_effect = FileNotFoundError()
-
-        with self.assertRaisesRegex(RuntimeError, "yt-dlp not found"):
-            get_author_videos(
-                "https://www.douyin.com/user/MS4wLjABAAAAWGs2N4r_PbCH8uXi07DlK8G5T-dz2EA_bnoWb00V5BaR_-LdVLMDxIfqFbU8qbwX"
-            )
-
-    @patch("scripts.douyin_author_feed.subprocess.run")
-    def test_get_author_videos_raises_clear_error_when_yt_dlp_times_out(self, mock_run: Mock):
-        mock_run.side_effect = subprocess.TimeoutExpired(cmd=["yt-dlp"], timeout=60)
-
-        with self.assertRaisesRegex(RuntimeError, "yt-dlp timed out"):
-            get_author_videos(
-                "https://www.douyin.com/user/MS4wLjABAAAAWGs2N4r_PbCH8uXi07DlK8G5T-dz2EA_bnoWb00V5BaR_-LdVLMDxIfqFbU8qbwX"
-            )
+        self.assertEqual([video["video_id"] for video in videos], ["today", "old-1", "old-2", "old-3"])
 
     def test_parse_publish_time_parses_epoch_milliseconds(self):
         published_at = parse_publish_time(1718674200000)
