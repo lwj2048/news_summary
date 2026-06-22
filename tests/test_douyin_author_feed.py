@@ -17,10 +17,11 @@ from scripts.douyin_author_feed import (
 
 
 class FakePage:
-    def __init__(self, author_cards=None, page_text_by_url=None, html_by_url=None):
+    def __init__(self, author_cards=None, page_text_by_url=None, html_by_url=None, recovery_cards=None):
         self.author_cards = author_cards or []
         self.page_text_by_url = page_text_by_url or {}
         self.html_by_url = html_by_url or {}
+        self.recovery_cards = recovery_cards or []
         self.current_url = ""
 
     def goto(self, url: str, wait_until: str, timeout: int) -> None:
@@ -33,6 +34,12 @@ class FakePage:
         return None
 
     def evaluate(self, _script: str):
+        if "clickByText" in _script:
+            self.author_cards = self.recovery_cards
+            self.html_by_url[self.current_url] = ""
+            return "recovered"
+        if "window.scrollTo" in _script:
+            return None
         return self.author_cards
 
     def locator(self, _selector: str):
@@ -54,10 +61,11 @@ class FakeLocator:
 
 
 class FakeContext:
-    def __init__(self, author_cards=None, page_text_by_url=None, html_by_url=None):
+    def __init__(self, author_cards=None, page_text_by_url=None, html_by_url=None, recovery_cards=None):
         self.author_cards = author_cards or []
         self.page_text_by_url = page_text_by_url or {}
         self.html_by_url = html_by_url or {}
+        self.recovery_cards = recovery_cards or []
         self.page_index = 0
 
     def new_page(self):
@@ -67,24 +75,31 @@ class FakeContext:
                 author_cards=self.author_cards,
                 page_text_by_url=self.page_text_by_url,
                 html_by_url=self.html_by_url,
+                recovery_cards=self.recovery_cards,
             )
-        return FakePage(page_text_by_url=self.page_text_by_url, html_by_url=self.html_by_url)
+        return FakePage(
+            page_text_by_url=self.page_text_by_url,
+            html_by_url=self.html_by_url,
+            recovery_cards=self.recovery_cards,
+        )
 
     def close(self) -> None:
         return None
 
 
 class FakeBrowser:
-    def __init__(self, author_cards=None, page_text_by_url=None, html_by_url=None):
+    def __init__(self, author_cards=None, page_text_by_url=None, html_by_url=None, recovery_cards=None):
         self.author_cards = author_cards or []
         self.page_text_by_url = page_text_by_url or {}
         self.html_by_url = html_by_url or {}
+        self.recovery_cards = recovery_cards or {}
 
     def new_context(self, **_kwargs):
         return FakeContext(
             author_cards=self.author_cards,
             page_text_by_url=self.page_text_by_url,
             html_by_url=self.html_by_url,
+            recovery_cards=self.recovery_cards,
         )
 
     def close(self) -> None:
@@ -223,6 +238,26 @@ class DouyinAuthorFeedTests(unittest.TestCase):
         videos = get_author_videos("https://www.douyin.com/user/test-author", target_day=date(2026, 6, 18))
 
         self.assertEqual(videos[0]["video_id"], "100")
+
+    @patch("scripts.douyin_author_feed._playwright_browser")
+    def test_get_author_video_urls_recovers_from_service_error_page(self, mock_browser):
+        html_by_url = {
+            "https://www.douyin.com/user/test-author": "服务异常，重新刷新拉取数据 刷新",
+        }
+        recovery_cards = [
+            {
+                "video_id": "100",
+                "video_url": "https://www.douyin.com/video/100",
+                "title": "行业更新 20260618",
+            }
+        ]
+        mock_browser.return_value = FakeBrowserContextManager(
+            FakeBrowser(html_by_url=html_by_url, recovery_cards=recovery_cards)
+        )
+
+        video_urls = get_author_video_urls("https://www.douyin.com/user/test-author")
+
+        self.assertEqual(video_urls, ["https://www.douyin.com/video/100"])
 
     @patch("scripts.douyin_author_feed._playwright_browser")
     def test_get_author_video_urls_returns_urls_in_author_page_order(self, mock_browser):

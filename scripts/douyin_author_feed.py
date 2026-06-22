@@ -174,6 +174,44 @@ def _looks_like_challenge_page(page: Any) -> bool:
     return "__ac_signature" in page_html or "window.byted_acrawler" in page_html
 
 
+def _try_recover_author_page(page: Any) -> bool:
+    result = page.evaluate(
+        """
+        () => {
+          const bodyText = document.body ? (document.body.innerText || "") : "";
+          const clickByText = (candidates) => {
+            const elements = Array.from(document.querySelectorAll("button, div, span, a"));
+            for (const candidate of candidates) {
+              const element = elements.find((node) => {
+                const text = (node.innerText || node.textContent || "").replace(/\\s+/g, " ").trim();
+                return text === candidate || text.includes(candidate);
+              });
+              if (element) {
+                element.click();
+                return candidate;
+              }
+            }
+            return "";
+          };
+
+          if (bodyText.includes("服务异常")) {
+            return clickByText(["刷新", "重试", "重新加载", "重新刷新拉取数据"]);
+          }
+
+          if (bodyText.includes("登录") || bodyText.includes("注册")) {
+            return clickByText(["暂不登录", "以后再说", "稍后再说", "关闭", "取消"]);
+          }
+
+          return "";
+        }
+        """
+    )
+    if isinstance(result, str) and result:
+        page.wait_for_timeout(1200)
+        return True
+    return False
+
+
 def _extract_author_video_cards(page: Any, author_url: str) -> list[dict[str, str]]:
     normalized_url = normalize_author_url(author_url)
 
@@ -195,6 +233,8 @@ def _extract_author_video_cards(page: Any, author_url: str) -> list[dict[str, st
                 if stable_rounds >= 2:
                     return cards
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                continue
+            if _try_recover_author_page(page):
                 continue
             if not _looks_like_challenge_page(page):
                 break
