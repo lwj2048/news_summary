@@ -2,7 +2,7 @@ name: Douyin Daily Author Pipeline
 
 on:
   schedule:
-    - cron: "30 15 * * *"
+    - cron: "0 15 * * *"
   workflow_dispatch:
 
 permissions:
