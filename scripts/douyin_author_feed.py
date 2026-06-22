@@ -308,6 +308,7 @@ def _extract_author_name(page: Any) -> str:
 def _filter_author_video_cards(cards: list[dict[str, Any]], author_name: str = "") -> list[dict[str, str]]:
     normalized_author_name = re.sub(r"\s+", "", author_name)
     normalized_cards: list[dict[str, str]] = []
+    author_named_cards: list[dict[str, str]] = []
 
     for card in cards:
         if not isinstance(card, dict):
@@ -321,17 +322,19 @@ def _filter_author_video_cards(cards: list[dict[str, Any]], author_name: str = "
             continue
         if "source=baiduspider" in raw_href:
             continue
+        normalized_card = {
+            "video_id": video_id,
+            "video_url": video_url,
+            "title": title,
+        }
+        normalized_cards.append(normalized_card)
         if normalized_author_name:
             normalized_title = re.sub(r"\s+", "", title)
-            if normalized_author_name not in normalized_title:
-                continue
-        normalized_cards.append(
-            {
-                "video_id": video_id,
-                "video_url": video_url,
-                "title": title,
-            }
-        )
+            if normalized_author_name in normalized_title:
+                author_named_cards.append(normalized_card)
+
+    if author_named_cards:
+        return author_named_cards
 
     return normalized_cards
 

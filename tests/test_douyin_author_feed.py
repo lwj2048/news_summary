@@ -226,6 +226,35 @@ class DouyinAuthorFeedTests(unittest.TestCase):
             ],
         )
 
+    def test_filter_author_video_cards_falls_back_to_non_baiduspider_links_when_titles_have_no_author_name(self):
+        cards = [
+            {
+                "video_id": "7652253434476875054",
+                "video_url": "https://www.douyin.com/video/7652253434476875054",
+                "title": "金融、交运、汽车、铀行业更新 20260617",
+                "raw_href": "/video/7652253434476875054",
+            },
+            {
+                "video_id": "7602874137111006500",
+                "video_url": "https://www.douyin.com/video/7602874137111006500",
+                "title": "别的页面 SEO 链接",
+                "raw_href": "https://www.douyin.com/video/7602874137111006500?source=Baiduspider",
+            },
+        ]
+
+        filtered = _filter_author_video_cards(cards, author_name="牛二研报纪要")
+
+        self.assertEqual(
+            filtered,
+            [
+                {
+                    "video_id": "7652253434476875054",
+                    "video_url": "https://www.douyin.com/video/7652253434476875054",
+                    "title": "金融、交运、汽车、铀行业更新 20260617",
+                }
+            ],
+        )
+
     def test_extract_author_id_reads_user_path_segment(self):
         author_id = extract_author_id(
             "https://www.douyin.com/user/MS4wLjABAAAAWGs2N4r_PbCH8uXi07DlK8G5T-dz2EA_bnoWb00V5BaR_-LdVLMDxIfqFbU8qbwX?from_tab_name=main"
