@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import re
+from http.cookies import SimpleCookie
+import os
 from contextlib import contextmanager
 from datetime import date, datetime
 from typing import Any, Iterator
@@ -98,6 +100,24 @@ def filter_today_videos(videos: list[dict[str, Any]], target_day: date | None = 
     return filtered
 
 
+def _parse_douyin_cookie_header(cookie_header: str) -> list[dict[str, Any]]:
+    cookie = SimpleCookie()
+    cookie.load(cookie_header)
+
+    parsed_cookies: list[dict[str, Any]] = []
+    for morsel in cookie.values():
+        parsed_cookies.append(
+            {
+                "name": morsel.key,
+                "value": morsel.value,
+                "domain": ".douyin.com",
+                "path": "/",
+                "secure": True,
+            }
+        )
+    return parsed_cookies
+
+
 @contextmanager
 def _playwright_browser() -> Iterator[Any]:
     try:
@@ -114,6 +134,25 @@ def _playwright_browser() -> Iterator[Any]:
             yield browser
         finally:
             browser.close()
+
+
+def _new_douyin_context(browser: Any) -> Any:
+    context = browser.new_context(
+        locale="zh-CN",
+        timezone_id="Asia/Shanghai",
+        user_agent=(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/137.0.0.0 Safari/537.36"
+        ),
+        viewport={"width": 1440, "height": 1200},
+    )
+
+    cookie_header = os.getenv("DOUYIN_COOKIE", "").strip()
+    if cookie_header:
+        context.add_cookies(_parse_douyin_cookie_header(cookie_header))
+
+    return context
 
 
 def _extract_video_cards_from_dom(page: Any) -> list[dict[str, str]]:
@@ -313,16 +352,7 @@ def _extract_author_video_cards(page: Any, author_url: str) -> list[dict[str, st
 def get_author_video_urls(author_url: str) -> list[str]:
     """抓取作者主页作品 URL，按页面顺序返回。"""
     with _playwright_browser() as browser:
-        context = browser.new_context(
-            locale="zh-CN",
-            timezone_id="Asia/Shanghai",
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/137.0.0.0 Safari/537.36"
-            ),
-            viewport={"width": 1440, "height": 1200},
-        )
+        context = _new_douyin_context(browser)
         author_page = context.new_page()
         try:
             cards = _extract_author_video_cards(author_page, author_url)
@@ -380,16 +410,7 @@ def get_author_videos(
         target_day = datetime.now(SHANGHAI_TZ).date()
 
     with _playwright_browser() as browser:
-        context = browser.new_context(
-            locale="zh-CN",
-            timezone_id="Asia/Shanghai",
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/137.0.0.0 Safari/537.36"
-            ),
-            viewport={"width": 1440, "height": 1200},
-        )
+        context = _new_douyin_context(browser)
         author_page = context.new_page()
         detail_page = context.new_page()
         try:

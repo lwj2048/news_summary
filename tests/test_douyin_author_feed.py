@@ -1,11 +1,14 @@
 import unittest
 from datetime import date, datetime
+import os
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from scripts.douyin_author_feed import (
     _build_video_record,
     _filter_author_video_cards,
+    _new_douyin_context,
+    _parse_douyin_cookie_header,
     extract_author_id,
     extract_title_date,
     filter_today_videos,
@@ -68,6 +71,7 @@ class FakeContext:
         self.html_by_url = html_by_url or {}
         self.recovery_cards = recovery_cards or []
         self.page_index = 0
+        self.added_cookies = []
 
     def new_page(self):
         self.page_index += 1
@@ -86,6 +90,9 @@ class FakeContext:
 
     def close(self) -> None:
         return None
+
+    def add_cookies(self, cookies):
+        self.added_cookies.extend(cookies)
 
 
 class FakeBrowser:
@@ -119,6 +126,48 @@ class FakeBrowserContextManager:
 
 
 class DouyinAuthorFeedTests(unittest.TestCase):
+    def test_parse_douyin_cookie_header_builds_playwright_cookies(self):
+        cookies = _parse_douyin_cookie_header("sessionid_ss=abc123; passport_csrf_token=xyz")
+
+        self.assertEqual(
+            cookies,
+            [
+                {
+                    "name": "sessionid_ss",
+                    "value": "abc123",
+                    "domain": ".douyin.com",
+                    "path": "/",
+                    "secure": True,
+                },
+                {
+                    "name": "passport_csrf_token",
+                    "value": "xyz",
+                    "domain": ".douyin.com",
+                    "path": "/",
+                    "secure": True,
+                },
+            ],
+        )
+
+    @patch.dict(os.environ, {"DOUYIN_COOKIE": "sessionid_ss=abc123"}, clear=False)
+    def test_new_douyin_context_injects_cookie_from_env(self):
+        browser = FakeBrowser()
+
+        context = _new_douyin_context(browser)
+
+        self.assertEqual(
+            context.added_cookies,
+            [
+                {
+                    "name": "sessionid_ss",
+                    "value": "abc123",
+                    "domain": ".douyin.com",
+                    "path": "/",
+                    "secure": True,
+                }
+            ],
+        )
+
     def test_filter_author_video_cards_keeps_only_current_author_videos(self):
         cards = [
             {

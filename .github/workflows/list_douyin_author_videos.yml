@@ -11,6 +11,8 @@ on:
 jobs:
   list_author_videos:
     runs-on: ubuntu-latest
+    env:
+      DOUYIN_COOKIE: ${{ secrets.DOUYIN_COOKIE }}
 
     steps:
       - name: checkout
