@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from scripts.douyin_author_feed import (
     _build_video_record,
+    _filter_author_video_cards,
     extract_author_id,
     extract_title_date,
     filter_today_videos,
@@ -118,6 +119,41 @@ class FakeBrowserContextManager:
 
 
 class DouyinAuthorFeedTests(unittest.TestCase):
+    def test_filter_author_video_cards_keeps_only_current_author_videos(self):
+        cards = [
+            {
+                "video_id": "7652253434476875054",
+                "video_url": "https://www.douyin.com/video/7652253434476875054",
+                "title": "牛二研报纪要：金融、交运、汽车、铀行业更新 20260617",
+                "raw_href": "/video/7652253434476875054",
+            },
+            {
+                "video_id": "7602874137111006500",
+                "video_url": "https://www.douyin.com/video/7602874137111006500",
+                "title": "",
+                "raw_href": "https://www.douyin.com/video/7602874137111006500?source=Baiduspider",
+            },
+            {
+                "video_id": "7181443957048479034",
+                "video_url": "https://www.douyin.com/video/7181443957048479034",
+                "title": "别的账号视频标题",
+                "raw_href": "/video/7181443957048479034",
+            },
+        ]
+
+        filtered = _filter_author_video_cards(cards, author_name="牛二研报纪要")
+
+        self.assertEqual(
+            filtered,
+            [
+                {
+                    "video_id": "7652253434476875054",
+                    "video_url": "https://www.douyin.com/video/7652253434476875054",
+                    "title": "牛二研报纪要：金融、交运、汽车、铀行业更新 20260617",
+                }
+            ],
+        )
+
     def test_extract_author_id_reads_user_path_segment(self):
         author_id = extract_author_id(
             "https://www.douyin.com/user/MS4wLjABAAAAWGs2N4r_PbCH8uXi07DlK8G5T-dz2EA_bnoWb00V5BaR_-LdVLMDxIfqFbU8qbwX?from_tab_name=main"

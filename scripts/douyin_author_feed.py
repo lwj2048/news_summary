@@ -120,28 +120,52 @@ def _extract_video_cards_from_dom(page: Any) -> list[dict[str, str]]:
     cards = page.evaluate(
         """
         () => {
-          const anchors = Array.from(document.querySelectorAll('a[href*="/video/"]'));
-          const seen = new Set();
-          const items = [];
+          const collectAnchorItems = (root) => {
+            const anchors = Array.from(root.querySelectorAll('a[href*="/video/"]'));
+            const seen = new Set();
+            const items = [];
 
-          for (const anchor of anchors) {
-            const href = anchor.href || "";
-            const match = href.match(/\\/video\\/(\\d+)/);
-            if (!match) continue;
+            for (const anchor of anchors) {
+              const href = anchor.getAttribute("href") || anchor.href || "";
+              const match = href.match(/\\/video\\/(\\d+)/);
+              if (!match) continue;
 
-            const videoId = match[1];
-            if (seen.has(videoId)) continue;
-            seen.add(videoId);
+              const videoId = match[1];
+              if (seen.has(videoId)) continue;
+              seen.add(videoId);
 
-            const text = (anchor.textContent || "").replace(/\\s+/g, " ").trim();
-            items.push({
-              video_id: videoId,
-              video_url: `https://www.douyin.com/video/${videoId}`,
-              title: text,
-            });
+              const text = (anchor.textContent || "").replace(/\\s+/g, " ").trim();
+              items.push({
+                video_id: videoId,
+                video_url: `https://www.douyin.com/video/${videoId}`,
+                title: text,
+                raw_href: href,
+              });
+            }
+
+            return items;
+          };
+
+          const panelCandidates = Array.from(document.querySelectorAll('[role="tabpanel"]'));
+          const worksPanel = panelCandidates.find((panel) => {
+            const text = (panel.innerText || panel.textContent || "").replace(/\\s+/g, " ").trim();
+            if (text.includes("搜索 Ta 的作品")) return true;
+            const searchInput = panel.querySelector('input[placeholder*="搜索"], input[placeholder*="作品"]');
+            return Boolean(searchInput);
+          });
+
+          const root = worksPanel || document;
+          const anchors = collectAnchorItems(root);
+          if (anchors.length > 0) {
+            return anchors;
           }
 
-          return items;
+          const allAnchors = collectAnchorItems(document);
+          if (allAnchors.length > 0) {
+            return allAnchors;
+          }
+
+          return [];
         }
         """
     )
@@ -149,15 +173,57 @@ def _extract_video_cards_from_dom(page: Any) -> list[dict[str, str]]:
     if not isinstance(cards, list):
         raise RuntimeError("unexpected author page payload")
 
+    return _filter_author_video_cards(cards, author_name=_extract_author_name(page))
+
+
+def _extract_author_name(page: Any) -> str:
+    author_name = page.evaluate(
+        """
+        () => {
+          const candidates = [
+            document.querySelector('h1'),
+            document.querySelector('[data-e2e="user-title"]'),
+            document.querySelector('[data-e2e="user-name"]'),
+            ...Array.from(document.querySelectorAll('[role="heading"]')),
+          ];
+
+          for (const candidate of candidates) {
+            if (!candidate) continue;
+            const text = (candidate.textContent || "").replace(/\\s+/g, " ").trim();
+            if (text && !text.includes("抖音")) {
+              return text;
+            }
+          }
+
+          return "";
+        }
+        """
+    )
+    if not isinstance(author_name, str):
+        return ""
+    return author_name.strip()
+
+
+def _filter_author_video_cards(cards: list[dict[str, Any]], author_name: str = "") -> list[dict[str, str]]:
+    normalized_author_name = re.sub(r"\s+", "", author_name)
     normalized_cards: list[dict[str, str]] = []
+
     for card in cards:
         if not isinstance(card, dict):
             continue
+
         video_id = str(card.get("video_id", "")).strip()
         video_url = str(card.get("video_url", "")).strip()
         title = str(card.get("title", "")).strip()
+        raw_href = str(card.get("raw_href", "")).strip().lower()
         if not video_id or not video_url:
             continue
+        if "source=baiduspider" in raw_href:
+            continue
+        if normalized_author_name:
+            normalized_title = re.sub(r"\s+", "", title)
+            if normalized_author_name not in normalized_title:
+                continue
         normalized_cards.append(
             {
                 "video_id": video_id,
