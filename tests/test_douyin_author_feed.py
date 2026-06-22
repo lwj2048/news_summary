@@ -8,6 +8,7 @@ from scripts.douyin_author_feed import (
     extract_author_id,
     extract_title_date,
     filter_today_videos,
+    get_author_video_urls,
     get_author_videos,
     normalize_author_url,
     parse_publish_time,
@@ -222,6 +223,32 @@ class DouyinAuthorFeedTests(unittest.TestCase):
         videos = get_author_videos("https://www.douyin.com/user/test-author", target_day=date(2026, 6, 18))
 
         self.assertEqual(videos[0]["video_id"], "100")
+
+    @patch("scripts.douyin_author_feed._playwright_browser")
+    def test_get_author_video_urls_returns_urls_in_author_page_order(self, mock_browser):
+        author_cards = [
+            {
+                "video_id": "newest",
+                "video_url": "https://www.douyin.com/video/newest",
+                "title": "行业更新 20260618",
+            },
+            {
+                "video_id": "older",
+                "video_url": "https://www.douyin.com/video/older",
+                "title": "行业更新 20260617",
+            },
+        ]
+        mock_browser.return_value = FakeBrowserContextManager(FakeBrowser(author_cards=author_cards))
+
+        video_urls = get_author_video_urls("https://www.douyin.com/user/test-author")
+
+        self.assertEqual(
+            video_urls,
+            [
+                "https://www.douyin.com/video/newest",
+                "https://www.douyin.com/video/older",
+            ],
+        )
 
     @patch("scripts.douyin_author_feed._playwright_browser")
     def test_get_author_videos_stops_after_multiple_older_videos(self, mock_browser):

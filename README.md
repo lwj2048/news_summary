@@ -149,6 +149,19 @@ python scripts/run_daily_author_pipeline.py
 - 支持在 GitHub Actions 页面手动触发
 - 定时任务只会自动提交 `news/` 和 `data/processed_douyin_videos.json`
 
+### 7. 手动打印博主全部作品 URL
+
+```bash
+python scripts/list_douyin_author_videos.py --author-url "https://www.douyin.com/user/xxxxx"
+```
+
+说明：
+
+- 只打印作品 URL
+- 按页面抓取顺序输出，默认是从新到旧
+- 不写文件，不跑摘要流程
+- 可用 `.github/workflows/list_douyin_author_videos.yml` 在 Actions 页面手动传入 `author_url`
+
 ## 本地模型部署
 
 ### 1. 使用Ollama
@@ -200,6 +213,7 @@ news_summary/
 ├── scripts/                    # 核心脚本
 │   ├── run_pipeline.py        # 完整流水线
 │   ├── run_daily_author_pipeline.py # 抖音博主每日批处理
+│   ├── list_douyin_author_videos.py # 打印抖音博主作品 URL
 │   ├── douyin_download.py     # 下载抖音视频
 │   ├── douyin_author_feed.py  # 抖音博主视频列表抓取
 │   ├── douyin_state.py        # 已处理视频状态存储

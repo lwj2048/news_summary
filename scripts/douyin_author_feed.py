@@ -180,17 +180,51 @@ def _extract_author_video_cards(page: Any, author_url: str) -> list[dict[str, st
     for _attempt in range(3):
         page.goto(normalized_url, wait_until="domcontentloaded", timeout=60000)
 
-        for _poll in range(6):
-            page.wait_for_timeout(2000)
+        stable_rounds = 0
+        previous_count = -1
+        for _poll in range(12):
+            page.wait_for_timeout(1500)
             cards = _extract_video_cards_from_dom(page)
             if cards:
-                return cards
+                current_count = len(cards)
+                if current_count == previous_count:
+                    stable_rounds += 1
+                else:
+                    stable_rounds = 0
+                    previous_count = current_count
+                if stable_rounds >= 2:
+                    return cards
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                continue
             if not _looks_like_challenge_page(page):
                 break
 
         page.reload(wait_until="domcontentloaded", timeout=60000)
 
     return []
+
+
+def get_author_video_urls(author_url: str) -> list[str]:
+    """抓取作者主页作品 URL，按页面顺序返回。"""
+    with _playwright_browser() as browser:
+        context = browser.new_context(
+            locale="zh-CN",
+            timezone_id="Asia/Shanghai",
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/137.0.0.0 Safari/537.36"
+            ),
+            viewport={"width": 1440, "height": 1200},
+        )
+        author_page = context.new_page()
+        try:
+            cards = _extract_author_video_cards(author_page, author_url)
+            if not cards:
+                raise RuntimeError(f"no douyin videos found for {normalize_author_url(author_url)}")
+            return [card["video_url"] for card in cards]
+        finally:
+            context.close()
 
 
 def _extract_video_publish_time(page: Any, video_url: str) -> datetime | None:

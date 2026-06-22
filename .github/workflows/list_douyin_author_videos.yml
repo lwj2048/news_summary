@@ -1,0 +1,40 @@
+name: List Douyin Author Videos
+
+on:
+  workflow_dispatch:
+    inputs:
+      author_url:
+        description: 抖音博主主页链接
+        required: true
+        type: string
+
+jobs:
+  list_author_videos:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: install ffmpeg and git
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg git
+
+      - name: install requirements
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: install playwright browser
+        run: python -m playwright install chromium
+
+      - name: print author video urls
+        run: |
+          python scripts/list_douyin_author_videos.py \
+            --author-url "${{ inputs.author_url }}"
