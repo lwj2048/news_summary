@@ -26,6 +26,7 @@ permissions:
 
 env:
   PYTHON_VERSION: '3.11'
+  DOUYIN_COOKIE: ${{ secrets.DOUYIN_COOKIE }}
 
 jobs:
   news_processing:
@@ -53,6 +54,9 @@ jobs:
           pip install -r requirements.txt
           pip install git+https://github.com/openai/whisper.git
 
+      - name: install playwright browser
+        run: python -m playwright install chromium
+
       - name: dir
         run: |
           mkdir -p downloads segments news
@@ -65,7 +69,7 @@ jobs:
 
       - name: 生成统一时间戳
         run: |
-          timestamp=$(date +"%Y%m%d-%H%M")
+          timestamp=$(python scripts/resolve_douyin_video_timestamp.py --video-url "${{ github.event.inputs.douyin_url }}" || date +"%Y%m%d-%H%M")
           echo "TIMESTAMP=$timestamp" >> $GITHUB_ENV
           echo "本次流水线时间戳: $timestamp"
 

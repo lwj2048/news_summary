@@ -2,8 +2,24 @@ name: Douyin Daily Author Pipeline
 
 on:
   schedule:
-    - cron: "0 15 * * *"
+    - cron: "30 15 * * *"
   workflow_dispatch:
+    inputs:
+      author_url:
+        description: 抖音博主主页链接
+        required: false
+        type: string
+        default: "https://www.douyin.com/user/MS4wLjABAAAAWGs2N4r_PbCH8uXi07DlK8G5T-dz2EA_bnoWb00V5BaR_-LdVLMDxIfqFbU8qbwX"
+      author_id:
+        description: 抖音博主 author_id
+        required: false
+        type: string
+        default: "MS4wLjABAAAAWGs2N4r_PbCH8uXi07DlK8G5T-dz2EA_bnoWb00V5BaR_-LdVLMDxIfqFbU8qbwX"
+      all_history:
+        description: 是否处理全部历史未处理视频
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -12,6 +28,7 @@ env:
   PYTHON_VERSION: "3.11"
   QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  DOUYIN_COOKIE: ${{ secrets.DOUYIN_COOKIE }}
 
 jobs:
   daily_author_pipeline:
@@ -51,7 +68,18 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: run daily author pipeline
-        run: python scripts/run_daily_author_pipeline.py
+        run: |
+          cmd=(python scripts/run_daily_author_pipeline.py)
+          if [ -n "${{ inputs.author_url }}" ]; then
+            cmd+=(--author-url "${{ inputs.author_url }}")
+          fi
+          if [ -n "${{ inputs.author_id }}" ]; then
+            cmd+=(--author-id "${{ inputs.author_id }}")
+          fi
+          if [ "${{ inputs.all_history }}" = "true" ]; then
+            cmd+=(--all-history)
+          fi
+          "${cmd[@]}"
 
       - name: commit and push changes
         run: |

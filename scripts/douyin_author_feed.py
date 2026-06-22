@@ -443,6 +443,17 @@ def _extract_video_publish_time(page: Any, video_url: str) -> datetime | None:
     return parse_publish_time_text(snapshot_text)
 
 
+def get_video_publish_time(video_url: str) -> datetime | None:
+    """抓取单个抖音视频页的发布时间。"""
+    with _playwright_browser() as browser:
+        context = _new_douyin_context(browser)
+        page = context.new_page()
+        try:
+            return _extract_video_publish_time(page, video_url)
+        finally:
+            context.close()
+
+
 def _build_video_record(card: dict[str, str], published_at: datetime | None) -> dict[str, Any]:
     published_at_raw: int | None = None
     if published_at is not None:
