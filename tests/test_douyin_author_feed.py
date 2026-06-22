@@ -149,6 +149,29 @@ class DouyinAuthorFeedTests(unittest.TestCase):
             ],
         )
 
+    def test_parse_douyin_cookie_header_supports_cookie_prefix_and_newlines(self):
+        cookies = _parse_douyin_cookie_header("Cookie: sessionid_ss=abc123;\npassport_csrf_token=xyz")
+
+        self.assertEqual(
+            cookies,
+            [
+                {
+                    "name": "sessionid_ss",
+                    "value": "abc123",
+                    "domain": ".douyin.com",
+                    "path": "/",
+                    "secure": True,
+                },
+                {
+                    "name": "passport_csrf_token",
+                    "value": "xyz",
+                    "domain": ".douyin.com",
+                    "path": "/",
+                    "secure": True,
+                },
+            ],
+        )
+
     @patch.dict(os.environ, {"DOUYIN_COOKIE": "sessionid_ss=abc123"}, clear=False)
     def test_new_douyin_context_injects_cookie_from_env(self):
         browser = FakeBrowser()

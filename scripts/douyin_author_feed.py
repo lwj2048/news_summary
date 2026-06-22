@@ -101,8 +101,12 @@ def filter_today_videos(videos: list[dict[str, Any]], target_day: date | None = 
 
 
 def _parse_douyin_cookie_header(cookie_header: str) -> list[dict[str, Any]]:
+    normalized_header = cookie_header.strip()
+    if normalized_header.lower().startswith("cookie:"):
+        normalized_header = normalized_header.split(":", 1)[1].strip()
+
     cookie = SimpleCookie()
-    cookie.load(cookie_header)
+    cookie.load(normalized_header)
 
     parsed_cookies: list[dict[str, Any]] = []
     for morsel in cookie.values():
@@ -115,7 +119,30 @@ def _parse_douyin_cookie_header(cookie_header: str) -> list[dict[str, Any]]:
                 "secure": True,
             }
         )
-    return parsed_cookies
+
+    if parsed_cookies:
+        return parsed_cookies
+
+    fallback_cookies: list[dict[str, Any]] = []
+    for fragment in re.split(r"[;\n]+", normalized_header):
+        piece = fragment.strip()
+        if not piece or "=" not in piece:
+            continue
+        name, value = piece.split("=", 1)
+        name = name.strip()
+        value = value.strip()
+        if not name:
+            continue
+        fallback_cookies.append(
+            {
+                "name": name,
+                "value": value,
+                "domain": ".douyin.com",
+                "path": "/",
+                "secure": True,
+            }
+        )
+    return fallback_cookies
 
 
 @contextmanager
@@ -150,9 +177,44 @@ def _new_douyin_context(browser: Any) -> Any:
 
     cookie_header = os.getenv("DOUYIN_COOKIE", "").strip()
     if cookie_header:
-        context.add_cookies(_parse_douyin_cookie_header(cookie_header))
+        cookies = _parse_douyin_cookie_header(cookie_header)
+        print(f"[douyin] cookie header detected, parsed cookies: {len(cookies)}")
+        if not cookies:
+            raise RuntimeError("DOUYIN_COOKIE is set but no valid cookies were parsed")
+        context.add_cookies(cookies)
+    else:
+        print("[douyin] DOUYIN_COOKIE is empty")
 
     return context
+
+
+def _collect_author_page_debug(page: Any) -> dict[str, Any]:
+    return page.evaluate(
+        """
+        () => {
+          const bodyText = document.body ? (document.body.innerText || "") : "";
+          const panelCandidates = Array.from(document.querySelectorAll('[role="tabpanel"]'));
+          const worksPanel = panelCandidates.find((panel) => {
+            const text = (panel.innerText || panel.textContent || "").replace(/\\s+/g, " ").trim();
+            if (text.includes("搜索 Ta 的作品")) return true;
+            return Boolean(panel.querySelector('input[placeholder*="搜索"], input[placeholder*="作品"]'));
+          });
+          const panelVideoAnchors = worksPanel
+            ? Array.from(worksPanel.querySelectorAll('a[href*="/video/"]')).length
+            : 0;
+          const docVideoAnchors = Array.from(document.querySelectorAll('a[href*="/video/"]')).length;
+          return {
+            title: document.title || "",
+            has_login_modal: bodyText.includes("登录后免费畅享高清视频"),
+            has_service_error: bodyText.includes("服务异常"),
+            has_search_box: bodyText.includes("搜索 Ta 的作品"),
+            works_panel_found: Boolean(worksPanel),
+            works_panel_video_anchors: panelVideoAnchors,
+            document_video_anchors: docVideoAnchors,
+          };
+        }
+        """
+    )
 
 
 def _extract_video_cards_from_dom(page: Any) -> list[dict[str, str]]:
@@ -344,6 +406,8 @@ def _extract_author_video_cards(page: Any, author_url: str) -> list[dict[str, st
             if not _looks_like_challenge_page(page):
                 break
 
+        debug_state = _collect_author_page_debug(page)
+        print(f"[douyin] author page debug: {debug_state}")
         page.reload(wait_until="domcontentloaded", timeout=60000)
 
     return []
